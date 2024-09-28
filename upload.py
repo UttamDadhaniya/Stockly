@@ -7,6 +7,10 @@ import configparser
 
 COL = []
 
+#--------------------------------------------------------------
+#configuration information
+
+
 config = configparser.ConfigParser()
 config.read('config.ini')
 
@@ -17,14 +21,13 @@ db_port = config['database_1']['port']
 db_name_1 = config['database_1']['database']    #datewisedb
 db_name_2 = config['database_2']['database']    #stockwisedb
 
-#conn = mysql.connect(user=db_user, password=db_password, host=db_host, database=db_name_2) #global connection to stock database close after calling the function
-#cursor = conn.cursor() 
+#---------------------------------------------------------------
 
 
-directory_path = os.getcwd() + '\\Bhavcopy'  # directory where all the Bhavcopy is stored and needs to be uploaded
+conn = mysql.connect(user=db_user, password=db_password, host=db_host, database=db_name_2) #global connection to stock database close after calling the function
+cursor = conn.cursor() 
 
-with os.scandir(directory_path) as entries:
-    list_of_files = [entry.name for entry in entries if entry.is_file()]        # Files is a array containing name of all the bhavcopy
+list_of_files = os.listdir(os.path.join(os.getcwd(), 'Bhavcopy'))        # Files is a array containing name of all the bhavcopy
 
 def table_exists(tablename):
     cursor.execute(f"SHOW TABLES LIKE '{tablename}'")
@@ -34,8 +37,9 @@ def table_exists(tablename):
         return True
     else:
         create_table_query = f"""
-        CREATE TABLE {tablename}(
+        CREATE TABLE IF NOT EXISTS {tablename}(
             TradeDt DATE,
+            Sgmt VARCHAR(10) NOT NULL,
             ISIN VARCHAR(12) NOT NULL,
             TckrSymb VARCHAR(10) NOT NULL,
             FinInstrmNm VARCHAR(255) NOT NULL,
@@ -48,6 +52,7 @@ def table_exists(tablename):
             TtlTradgVol BIGINT NOT NULL,
             TtlTrfVal DOUBLE NOT NULL,
             TtlNbOfTxsExctd BIGINT NOT NULL
+            
         );
         """
         cursor.execute(create_table_query)
@@ -57,10 +62,11 @@ def table_exists(tablename):
 def get_column_indices(filename):
 
     global COL
-    csv_file = filename
+    COL.clear()
+    csv_file = os.path.join(os.getcwd(), 'Bhavcopy', filename)
     # Define the target column names
     target_columns = [
-        'TradDt', 'ISIN', 'TckrSymb', 'FinInstrmNm', 'OpnPric', 
+        'TradDt', 'Sgmt', 'ISIN', 'TckrSymb', 'FinInstrmNm', 'OpnPric', 
         'HghPric', 'LwPric', 'ClsPric', 'LastPric', 
         'PrvsClsgPric', 'TtlTradgVol', 'TtlTrfVal', 'TtlNbOfTxsExctd'
     ]
@@ -81,37 +87,60 @@ def file_to_stock():                #uploades stock wise data to database 2 - 's
     global conn, cursor
     
     filename = list_of_files
+    batch_size = 1000
     
     for file in filename:
     
-        if(filename == "upload.py"):
-            print("Not a valid file")
-        else:
-            get_column_indices(file)
-            
-            with open(file, mode='r') as csv_file:
-                csv_reader = csv.reader(csv_file)
-                header = next(csv_reader)
-                for row in csv_reader:
-                
+        get_column_indices(file)
+
+        file = os.path.join(os.getcwd(), 'Bhavcopy', file)
+        
+        with open(file, mode='r') as csv_file:
+            csv_reader = csv.reader(csv_file)
+            header = next(csv_reader)
+
+            data_batch = []
+
+            for row in csv_reader:
+
+                t_name = row[COL[2]]
+
                 #function to create table and check if table exits or not
-                    if(table_exists(row[COL[1]])):
+                if(table_exists(t_name)):
                     
-                        t_name = row[COL[1]]
-                        
-                        sql = f"""INSERT INTO {t_name} (TradeDt, ISIN, TckrSymb, FinInstrmNm, OpnPric,HghPric, LwPric, ClsPric, LastPric, PrvsClsgPric,TtlTradgVol, TtlTrfVal, TtlNbOfTxsExctd) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE TradeDt = TradeDt"""
-                        
-                        row_data = [row[col] for col in COL[:13]] #array to list
+                    row_data = [row[col] for col in COL]
+
+                    if len(row_data) != 14:  # Ensure correct number of columns for insert
+                        print(f"Warning: Expected 14 values, but got {len(row_data)}. Row: {row}")
+                        continue
+                    
+                    data_batch.append(tuple(row_data))
+
+                    if len(data_batch) >= batch_size:
+
+                        sql = f"""INSERT INTO {t_name} 
+                                    (TradeDt, Sgmt, ISIN, TckrSymb, FinInstrmNm, 
+                                    OpnPric, HghPric, LwPric, ClsPric, LastPric, 
+                                    PrvsClsgPric, TtlTradgVol, TtlTrfVal, TtlNbOfTxsExctd) 
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+                                    %s, %s, %s, %s)"""
+            
                         try:
-                            cursor.execute(sql, tuple(row_data))
+                            cursor.executemany(sql, data_batch)
+                            print(f"Inserted {len(data_batch)} records into {t_name}.")
+                            conn.commit()
+                            data_batch = []
                         except Exception as e:
-                            print(f"An error occurred: {e}")
-                        
-                        print("details updated for "+row[COL[0]]+" and "+row[COL[3]])
-                        #Commit the changes and close the connection
-                    else:
-                        print("Error occured in function file_to_stock")
+                            print(f"An error occurred during batch insert: {e}")
+                
+            if data_batch:
+                try:
+                    cursor.executemany(sql, data_batch)
+                    print(f"Inserted remaining {len(data_batch)} records into {t_name}.")
+                except Exception as e:
+                    print(f"An error occurred during final batch insert: {e}")
     conn.commit()
+                       
     
 
 def update_stocks(name):            #updates list of stock when new bhavcopy is there
@@ -144,7 +173,7 @@ def file_to_table():                #uplodes daily bhavcopy to database1 - 'date
         if (filename == "upload.py"):
             print("Successfully done")
         else:
-            csv_file_path = os.getcwd() + '\\Bhavcopy\\' + filename
+            csv_file_path = os.path.join(os.getcwd(), 'Bhavcopy', filename)
 
             columns_to_read = ['Sgmt', 'ISIN', 'TckrSymb', 'SctySrs', 'FinInstrmNm', 'OpnPric', 'HghPric', 'LwPric', 'ClsPric', 'LastPric', 'PrvsClsgPric', 'TtlTradgVol', 'TtlTrfVal', 'TtlNbOfTxsExctd']
             
@@ -165,12 +194,13 @@ def file_to_table():                #uplodes daily bhavcopy to database1 - 'date
 
  
 
-file_to_table()                 #uplodes daily bhavcopy to database 1 - 'datewisedb'
+#file_to_table()                 #uplodes daily bhavcopy to database 1 - 'datewisedb'
 
-#file_to_stock()                 #uploades stock wise data to database 2 - 'stockwisedb' where data of perticular stock is uploded
+file_to_stock()                 #uploades stock wise data to database 2 - 'stockwisedb' where data of perticular stock is uploded
 
-#cursor.close()
-#conn.close()
+#conn.commit()
+cursor.close()
+conn.close()
 
 #use 7 zip on all files and extract the files
 #use *.* in search bar cut all csv file and paste it in new folder
