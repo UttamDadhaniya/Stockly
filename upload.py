@@ -6,7 +6,7 @@ import os
 
 COL = []
 
-#conn = mysql.connect(user='root', password='', host='localhost', database='stockwisedb') #global connection to stock database close after calling the function
+#conn = mysql.connect(user='root', password='root', host='localhost', database='stockwisedb') #global connection to stock database close after calling the function
 #cursor = conn.cursor() 
 
 
@@ -111,11 +111,11 @@ def update_stocks(name):            #updates list of stock when new bhavcopy is 
     
     stocks = pd.read_csv(name_of_file, usecols=columns)
     
-    database_url = 'mysql+mysqldb://root:@localhost:3306/datewisedb'
+    database_url = 'mysql+mysqldb://root:root@localhost:3306/datewisedb'
             
     engine = create_engine(database_url)
     
-    database_url_2 = 'mysql+mysqldb://root:@localhost:3306/stockwisedb'
+    database_url_2 = 'mysql+mysqldb://root:root@localhost:3306/stockwisedb'
             
     engine_2 = create_engine(database_url_2)
     
@@ -139,7 +139,7 @@ def file_to_table():                #uplodes daily bhavcopy to database1 - 'date
             
             data = pd.read_csv(csv_file_path, usecols=columns_to_read)
 
-            database_url = 'mysql+mysqldb://root:@localhost:3306/datewisedb'
+            database_url = 'mysql+mysqldb://root:root@localhost:3306/datewisedb'
             
             engine = create_engine(database_url)
             
