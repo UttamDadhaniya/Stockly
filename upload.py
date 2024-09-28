@@ -3,10 +3,21 @@ import csv
 import pandas as pd
 from sqlalchemy import create_engine
 import os
+import configparser
 
 COL = []
 
-#conn = mysql.connect(user='root', password='root', host='localhost', database='stockwisedb') #global connection to stock database close after calling the function
+config = configparser.ConfigParser()
+config.read('config.ini')
+
+db_host = config['database_1']['host']
+db_user = config['database_1']['user']
+db_password = config['database_1']['password']
+db_port = config['database_1']['port']
+db_name_1 = config['database_1']['database']    #datewisedb
+db_name_2 = config['database_2']['database']    #stockwisedb
+
+#conn = mysql.connect(user=db_user, password=db_password, host=db_host, database=db_name_2) #global connection to stock database close after calling the function
 #cursor = conn.cursor() 
 
 
@@ -105,17 +116,17 @@ def file_to_stock():                #uploades stock wise data to database 2 - 's
 
 def update_stocks(name):            #updates list of stock when new bhavcopy is there
 
-    name_of_file = name
+    name_of_file = os.getcwd() + '\\Bhavcopy\\' + name
 
-    columns = ['ISIN', 'TckrSymb', 'FinInstrmNm']
+    columns = ['Sgmt', 'ISIN', 'TckrSymb', 'FinInstrmNm']
     
     stocks = pd.read_csv(name_of_file, usecols=columns)
     
-    database_url = 'mysql+mysqldb://root:root@localhost:3306/datewisedb'
+    database_url = f'mysql+mysqldb://{db_user}:{db_password}@{db_host}:{db_port}/{db_name_1}'
             
     engine = create_engine(database_url)
     
-    database_url_2 = 'mysql+mysqldb://root:root@localhost:3306/stockwisedb'
+    database_url_2 = f'mysql+mysqldb://{db_user}:{db_password}@{db_host}:{db_port}/{db_name_2}'
             
     engine_2 = create_engine(database_url_2)
     
@@ -133,27 +144,28 @@ def file_to_table():                #uplodes daily bhavcopy to database1 - 'date
         if (filename == "upload.py"):
             print("Successfully done")
         else:
-            csv_file_path = filename
+            csv_file_path = os.getcwd() + '\\Bhavcopy\\' + filename
 
-            columns_to_read = ['ISIN', 'TckrSymb', 'SctySrs', 'FinInstrmNm', 'OpnPric', 'HghPric', 'LwPric', 'ClsPric', 'LastPric', 'PrvsClsgPric', 'TtlTradgVol', 'TtlTrfVal', 'TtlNbOfTxsExctd']
+            columns_to_read = ['Sgmt', 'ISIN', 'TckrSymb', 'SctySrs', 'FinInstrmNm', 'OpnPric', 'HghPric', 'LwPric', 'ClsPric', 'LastPric', 'PrvsClsgPric', 'TtlTradgVol', 'TtlTrfVal', 'TtlNbOfTxsExctd']
             
             data = pd.read_csv(csv_file_path, usecols=columns_to_read)
 
-            database_url = 'mysql+mysqldb://root:root@localhost:3306/datewisedb'
+            data['PerChange'] = (data['ClsPric'] - data['PrvsClsgPric'])/data['PrvsClsgPric']
+
+            database_url = f'mysql+mysqldb://{db_user}:{db_password}@{db_host}:{db_port}/{db_name_1}'
             
             engine = create_engine(database_url)
             
             try:
                 data.to_sql(filename.replace(".csv",""), con=engine, if_exists='fail', index=False)
                 update_stocks(filename)
-                
-                
+                 
             except ValueError as e:
                 print (filename + " file is already uploaded") 
 
  
 
-#file_to_table()                 #uplodes daily bhavcopy to database 1 - 'datewisedb'
+file_to_table()                 #uplodes daily bhavcopy to database 1 - 'datewisedb'
 
 #file_to_stock()                 #uploades stock wise data to database 2 - 'stockwisedb' where data of perticular stock is uploded
 
