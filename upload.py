@@ -4,6 +4,7 @@ import pandas as pd
 from sqlalchemy import create_engine
 import os
 import configparser
+import logging
 
 COL = []
 
@@ -23,9 +24,14 @@ db_name_2 = config['database_2']['database']    #stockwisedb
 
 #---------------------------------------------------------------
 
+# Configure logging
+log_file = "bhavcopy_upload_log.txt"
+logging.basicConfig(filename=log_file, level=logging.INFO, 
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 
-conn = mysql.connect(user=db_user, password=db_password, host=db_host, database=db_name_2) #global connection to stock database close after calling the function
-cursor = conn.cursor() 
+
+#conn = mysql.connect(user=db_user, password=db_password, host=db_host, database=db_name_2) #global connection to stock database close after calling the function
+#cursor = conn.cursor() 
 
 list_of_files = os.listdir(os.path.join(os.getcwd(), 'Bhavcopy'))        # Files is a array containing name of all the bhavcopy
 
@@ -140,12 +146,25 @@ def file_to_stock():                #uploades stock wise data to database 2 - 's
                 except Exception as e:
                     print(f"An error occurred during final batch insert: {e}")
     conn.commit()
-                       
+
+def is_file_uploaded(filename):
+    """
+    Check if the file has been uploaded by reading the log file.
+    
+    :param filename: The name of the file to check.
+    :return: True if the file is found in the log file, False otherwise.
+    """
+    if os.path.exists(log_file):
+        with open(log_file, 'r') as log:
+            for line in log:
+                if filename in line and 'successfully uploaded' in line:
+                    return True
+    return False                       
     
 
 def update_stocks(name):            #updates list of stock when new bhavcopy is there
 
-    name_of_file = os.getcwd() + '\\Bhavcopy\\' + name
+    name_of_file = os.path.join(os.getcwd(), 'Bhavcopy', name)
 
     columns = ['Sgmt', 'ISIN', 'TckrSymb', 'FinInstrmNm']
     
@@ -170,37 +189,48 @@ def file_to_table():                #uplodes daily bhavcopy to database1 - 'date
 
     for filename in list_of_files:
 
-        if (filename == "upload.py"):
-            print("Successfully done")
-        else:
-            csv_file_path = os.path.join(os.getcwd(), 'Bhavcopy', filename)
+        if is_file_uploaded(filename):
+            print(f"Skipping {filename} already uploaded.")
+            continue
 
-            columns_to_read = ['Sgmt', 'ISIN', 'TckrSymb', 'SctySrs', 'FinInstrmNm', 'OpnPric', 'HghPric', 'LwPric', 'ClsPric', 'LastPric', 'PrvsClsgPric', 'TtlTradgVol', 'TtlTrfVal', 'TtlNbOfTxsExctd']
-            
-            data = pd.read_csv(csv_file_path, usecols=columns_to_read)
+        csv_file_path = os.path.join(os.getcwd(), 'Bhavcopy', filename)
 
-            data['PerChange'] = (data['ClsPric'] - data['PrvsClsgPric'])/data['PrvsClsgPric']
+        columns_to_read = ['Sgmt', 'ISIN', 'TckrSymb', 'SctySrs', 'FinInstrmNm', 'OpnPric', 'HghPric', 'LwPric', 'ClsPric', 'LastPric', 'PrvsClsgPric', 'TtlTradgVol', 'TtlTrfVal', 'TtlNbOfTxsExctd']
+        
+        data = pd.read_csv(csv_file_path, usecols=columns_to_read)
 
-            database_url = f'mysql+mysqldb://{db_user}:{db_password}@{db_host}:{db_port}/{db_name_1}'
-            
-            engine = create_engine(database_url)
-            
-            try:
-                data.to_sql(filename.replace(".csv",""), con=engine, if_exists='fail', index=False)
-                update_stocks(filename)
-                 
-            except ValueError as e:
-                print (filename + " file is already uploaded") 
+        data['PerChange'] = (data['ClsPric'] - data['PrvsClsgPric'])/data['PrvsClsgPric']
+
+        database_url = f'mysql+mysqldb://{db_user}:{db_password}@{db_host}:{db_port}/{db_name_1}'
+        
+        engine = create_engine(database_url)
+        
+        try:
+            data.to_sql(filename.replace(".csv",""), con=engine, if_exists='fail', index=False)
+
+            logging.info(f"{filename} successfully uploaded to the database.")
+            print(f"{filename} successfully uploaded.")
+
+            update_stocks(filename)
+                
+        except ValueError as e:
+            logging.warning(f"{filename} file is already uploaded: {e}")
+            print (filename + " file is already uploaded") 
+
+        except Exception as e:
+            # Log any other errors during the process
+            logging.error(f"Error uploading {filename}: {e}")
+            print(f"Error uploading {filename}: {e}")
 
  
 
-#file_to_table()                 #uplodes daily bhavcopy to database 1 - 'datewisedb'
+file_to_table()                 #uplodes daily bhavcopy to database 1 - 'datewisedb'
 
-file_to_stock()                 #uploades stock wise data to database 2 - 'stockwisedb' where data of perticular stock is uploded
+#file_to_stock()                 #uploades stock wise data to database 2 - 'stockwisedb' where data of perticular stock is uploded
 
 #conn.commit()
-cursor.close()
-conn.close()
+#cursor.close()
+#conn.close()
 
 #use 7 zip on all files and extract the files
 #use *.* in search bar cut all csv file and paste it in new folder
